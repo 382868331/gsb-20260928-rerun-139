@@ -290,10 +290,20 @@ func (engine *aggEngine) finishFrames(emit func(spillFrame) error) (int, error) 
 func (engine *aggEngine) snapshotTo(stateRoot string, sequence int) (string, uint32, error) {
 	relative := filepath.ToSlash(filepath.Join("runs", fmt.Sprintf("state-%06d.spill", sequence)))
 	finalPath := filepath.Join(stateRoot, filepath.FromSlash(relative))
+	frames, err := engine.snapshotToPath(finalPath)
+	if err != nil {
+		return "", 0, err
+	}
+	engine.runs = []spilledRun{{path: finalPath, frames: frames}}
+	engine.state = newAggState(len(engine.aggs))
+	return relative, frames, nil
+}
+
+func (engine *aggEngine) snapshotToPath(finalPath string) (uint32, error) {
 	tempPath := finalPath + ".tmp"
 	writer, err := createRunWriter(tempPath)
 	if err != nil {
-		return "", 0, err
+		return 0, err
 	}
 	var frames uint32
 	runCount, err := engine.finishFrames(func(frame spillFrame) error {
@@ -306,28 +316,30 @@ func (engine *aggEngine) snapshotTo(stateRoot string, sequence int) (string, uin
 	if err != nil {
 		writer.file.Close()
 		_ = os.Remove(tempPath)
-		return "", 0, err
+		return 0, err
 	}
 	if err := writer.close(); err != nil {
 		_ = os.Remove(tempPath)
-		return "", 0, err
+		return 0, err
 	}
 	if err := os.Chmod(tempPath, 0o644); err != nil {
 		_ = os.Remove(tempPath)
-		return "", 0, err
+		return 0, err
 	}
 	if err := os.Rename(tempPath, finalPath); err != nil {
 		_ = os.Remove(tempPath)
-		return "", 0, err
+		return 0, err
 	}
 	if err := syncDir(filepath.Dir(finalPath)); err != nil {
-		return "", 0, err
+		return 0, err
 	}
-	engine.runs = []spilledRun{{path: finalPath, frames: frames}}
-	engine.state = newAggState(len(engine.aggs))
 	_ = runCount
-	return relative, frames, nil
+	return frames, nil
 }
+
+// spillRunCount reports how many spill files the engine produced while
+// accumulating the current segment.
+func (engine *aggEngine) spillRunCount() int { return engine.runSequence }
 
 func (engine *aggEngine) finish() ([][]any, int, error) {
 	rows := make([][]any, 0)

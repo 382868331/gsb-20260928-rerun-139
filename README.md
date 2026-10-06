@@ -76,3 +76,36 @@ result, _ := reader.Scan(columnar.ScanOptions{
 	Filter: filter,
 })
 ```
+
+## Versioned incremental releases
+
+`IncrementalAggregationJob` publishes aggregation results by input data
+version. The manifest carries a dataset `revision`; every segment has a stable
+identity (`id`) plus a per-identity revision.
+
+- `Writer.FlushAs(id)` appends with an explicit stable identity; `Flush` keeps
+  generating ids as before.
+- `Writer.ReplaceSegment(id)` writes a new revision of that identity (the old
+  contribution is dropped, the new one computed) and bumps the dataset
+  revision.
+- `Writer.WithdrawSegment(id)` removes a stable identity from the dataset.
+
+`Reader.PreviewIncrementalAggregation` classifies the round as appended,
+replaced, or withdrawn segments per stable id, recomputes only the changed
+segment states, and merges them with the previous release's confirmed per
+segment states. It returns the involved segments, the affected output groups
+(`appeared`, `updated`, `disappeared`), and the full candidate result, but
+publishes nothing. `PublishIncrementalAggregation` atomically commits a new
+`releases/release-NNNNNN` version; repeated previews or publishes for the same
+dataset revision are idempotent, including after closing and reopening the
+dataset. `CancelIncrementalAggregation` discards the staged round and leaves
+the previously published release readable. `CurrentIncrementalRelease` and
+`IncrementalReleaseByNumber` read the current and older releases; old releases
+and the per-segment state files they reference are retained.
+
+Changed segments are aggregated independently under
+`AggregateRequest.MaxInMemoryGroups`, so a hot group that appears in several
+segments updates across segments without a growing resident table; the final
+result is produced by the same bounded k-way spill merge. A withdrawn or
+replaced segment that carried a group's last rows makes the group disappear
+from the new result, while the old release still reports it.
