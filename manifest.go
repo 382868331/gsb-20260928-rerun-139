@@ -10,12 +10,14 @@ const manifestVersion = 1
 
 type manifest struct {
 	Version  int           `json:"version"`
+	Revision uint64        `json:"revision"`
 	Columns  []Column      `json:"columns"`
 	Segments []segmentInfo `json:"segments"`
 }
 
 type segmentInfo struct {
 	ID    string           `json:"id"`
+	Rev   uint64           `json:"rev,omitempty"`
 	Rows  uint64           `json:"rows"`
 	Files []segmentFile    `json:"files"`
 	Stats map[string]stats `json:"stats"`
@@ -55,6 +57,10 @@ func decodeManifest(data []byte) (manifest, error) {
 			return manifest{}, fmt.Errorf("duplicate segment id %q", segment.ID)
 		}
 		seenSegments[segment.ID] = struct{}{}
+		if segment.Rev == 0 {
+			segment.Rev = 1
+			value.Segments[i] = segment
+		}
 		if segment.Rows == 0 {
 			return manifest{}, fmt.Errorf("segment %q has zero rows", segment.ID)
 		}

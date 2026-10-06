@@ -1,6 +1,7 @@
 package columnar
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 )
@@ -24,6 +25,21 @@ type Predicate struct {
 
 type Filter struct {
 	predicates []Predicate
+}
+
+func (f *Filter) MarshalJSON() ([]byte, error) {
+	if f == nil || len(f.predicates) == 0 {
+		return []byte("null"), nil
+	}
+	return json.Marshal(f.predicates)
+}
+
+func (f *Filter) UnmarshalJSON(data []byte) error {
+	if string(data) == "null" {
+		f.predicates = nil
+		return nil
+	}
+	return json.Unmarshal(data, &f.predicates)
 }
 
 func NewFilter(predicates ...Predicate) (*Filter, error) {
